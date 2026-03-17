@@ -2,6 +2,11 @@
   "name": "cmux",
   "version": "1.0.0",
   "description": "A terminal multiplexer with vertical tabs and notifications for AI coding agents",
+  "author": {
+    "name": "cmux contributors",
+    "email": "cmux@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/MMcintire96/cmux",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
