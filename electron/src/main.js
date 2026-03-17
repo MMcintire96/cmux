@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, globalShortcut, Notification, nativeTheme, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Notification, nativeTheme, shell, dialog } = require('electron');
 const path = require('path');
 const net = require('net');
 const fs = require('fs');
@@ -9,27 +9,17 @@ const { setupPtyHandlers, killAll: killAllPty } = require('./pty-manager');
 const store = new Store({
   defaults: {
     sidebarWidth: 260,
-    theme: 'system',
-    fontFamily: 'monospace',
+    sidebarVisible: true,
+    theme: 'dark',
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace",
     fontSize: 14,
+    scrollback: 10000,
+    cursorStyle: 'bar',
+    cursorBlink: true,
     socketControl: 'cmux-only',
     newWorkspacePlacement: 'afterCurrent',
     workspaceAutoReorder: true,
-    sidebarActiveIndicator: 'leftRail',
     windowBounds: null,
-    sessions: [],
-    shortcuts: {
-      toggleSidebar: 'CommandOrControl+B',
-      newWorkspace: 'CommandOrControl+T',
-      newWindow: 'CommandOrControl+Shift+N',
-      showNotifications: 'CommandOrControl+Shift+A',
-      splitRight: 'CommandOrControl+D',
-      splitDown: 'CommandOrControl+Shift+D',
-      nextWorkspace: 'CommandOrControl+Shift+]',
-      prevWorkspace: 'CommandOrControl+Shift+[',
-      closeWorkspace: 'CommandOrControl+W',
-      find: 'CommandOrControl+F',
-    }
   }
 });
 
@@ -47,18 +37,19 @@ function createWindow() {
     minWidth: 600,
     minHeight: 400,
     frame: false,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: false,
     backgroundColor: '#1e1e2e',
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: true,
+      contextIsolation: false,
     },
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: path.join(__dirname, '..', 'assets', 'icon.svg'),
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   mainWindow.on('close', () => {
     store.set('windowBounds', mainWindow.getBounds());
@@ -68,18 +59,17 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  setupPtyHandlers(mainWindow);
 }
 
-// Socket API for CLI control
+// Socket API
 function startSocketServer() {
   const socketPath = path.join(os.tmpdir(), `cmux-${process.pid}.sock`);
-
-  // Clean up old socket
   try { fs.unlinkSync(socketPath); } catch {}
 
   socketServer = net.createServer((connection) => {
@@ -95,60 +85,22 @@ function startSocketServer() {
   });
 
   socketServer.listen(socketPath, () => {
-    // Write socket path so CLI can find it
-    const infoPath = path.join(os.tmpdir(), 'cmux-socket-path');
-    fs.writeFileSync(infoPath, socketPath);
+    fs.writeFileSync(path.join(os.tmpdir(), 'cmux-socket-path'), socketPath);
   });
-
-  socketServer.on('error', (err) => {
-    console.error('Socket server error:', err);
-  });
+  socketServer.on('error', (err) => console.error('Socket error:', err));
 }
 
 function handleSocketCommand(command, connection) {
-  const parts = command.split(' ');
-  const cmd = parts[0];
-  const args = parts.slice(1);
-
-  let response = { ok: true };
-
-  switch (cmd) {
-    case 'workspace.list':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'workspace.select':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'workspace.new':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'workspace.close':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'pane.split':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'notification.list':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    case 'notification.send':
-      mainWindow?.webContents.send('socket-command', { cmd, args });
-      break;
-    default:
-      response = { ok: false, error: `Unknown command: ${cmd}` };
-  }
-
-  connection.write(JSON.stringify(response) + '\n');
+  mainWindow?.webContents.send('socket-command', command);
+  connection.write(JSON.stringify({ ok: true }) + '\n');
 }
 
-// IPC Handlers
+// IPC handlers
 ipcMain.handle('store-get', (_, key) => store.get(key));
-ipcMain.handle('store-set', (_, key, value) => store.set(key, value));
+ipcMain.handle('store-set', (_, key, value) => { store.set(key, value); });
+ipcMain.handle('store-get-all', () => store.store);
 
-ipcMain.handle('get-shell', () => {
-  return process.env.SHELL || '/bin/bash';
-});
-
+ipcMain.handle('get-shell', () => process.env.SHELL || '/bin/bash');
 ipcMain.handle('get-home-dir', () => os.homedir());
 ipcMain.handle('get-platform', () => process.platform);
 
@@ -160,29 +112,100 @@ ipcMain.handle('show-notification', (_, { title, body }) => {
 
 ipcMain.handle('window-minimize', () => mainWindow?.minimize());
 ipcMain.handle('window-maximize', () => {
-  if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow?.maximize();
-  }
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+  else mainWindow?.maximize();
+  return mainWindow?.isMaximized();
 });
 ipcMain.handle('window-close', () => mainWindow?.close());
-ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized());
+ipcMain.handle('window-is-maximized', () => mainWindow?.isMaximized() || false);
+ipcMain.handle('window-is-focused', () => mainWindow?.isFocused() || false);
 
-ipcMain.on('window-drag', () => {
-  // Handled by CSS -webkit-app-region: drag
+ipcMain.handle('open-folder-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+  });
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
 });
 
-// App lifecycle
+ipcMain.handle('get-theme', () => {
+  const pref = store.get('theme');
+  if (pref === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return pref;
+});
+
+nativeTheme.on('updated', () => {
+  mainWindow?.webContents.send('theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+});
+
+// Menu
+function buildMenu() {
+  const isMac = process.platform === 'darwin';
+  const mod = isMac ? 'Cmd' : 'Ctrl';
+
+  const template = [
+    ...(isMac ? [{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }] : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Workspace', accelerator: `${mod}+T`, click: () => mainWindow?.webContents.send('menu-action', 'new-workspace') },
+        { label: 'Open Folder...', accelerator: `${mod}+O`, click: () => mainWindow?.webContents.send('menu-action', 'open-folder') },
+        { type: 'separator' },
+        { label: 'Split Right', accelerator: `${mod}+D`, click: () => mainWindow?.webContents.send('menu-action', 'split-right') },
+        { label: 'Split Down', accelerator: `${mod}+Shift+D`, click: () => mainWindow?.webContents.send('menu-action', 'split-down') },
+        { type: 'separator' },
+        { label: 'Close Pane', accelerator: `${mod}+W`, click: () => mainWindow?.webContents.send('menu-action', 'close-pane') },
+        { type: 'separator' },
+        ...(isMac ? [] : [{ role: 'quit' }]),
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { label: 'Copy', accelerator: `${mod}+Shift+C`, click: () => mainWindow?.webContents.send('menu-action', 'copy') },
+        { label: 'Paste', accelerator: `${mod}+Shift+V`, click: () => mainWindow?.webContents.send('menu-action', 'paste') },
+        { type: 'separator' },
+        { label: 'Find', accelerator: `${mod}+F`, click: () => mainWindow?.webContents.send('menu-action', 'toggle-find') },
+        { type: 'separator' },
+        { label: 'Settings', accelerator: `${mod}+,`, click: () => mainWindow?.webContents.send('menu-action', 'open-settings') },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Toggle Sidebar', accelerator: `${mod}+B`, click: () => mainWindow?.webContents.send('menu-action', 'toggle-sidebar') },
+        { label: 'Notifications', accelerator: `${mod}+Shift+A`, click: () => mainWindow?.webContents.send('menu-action', 'toggle-notifications') },
+        { type: 'separator' },
+        { label: 'Next Workspace', accelerator: `${mod}+Shift+]`, click: () => mainWindow?.webContents.send('menu-action', 'next-workspace') },
+        { label: 'Previous Workspace', accelerator: `${mod}+Shift+[`, click: () => mainWindow?.webContents.send('menu-action', 'prev-workspace') },
+        { type: 'separator' },
+        { label: 'Next Pane', accelerator: `${mod}+]`, click: () => mainWindow?.webContents.send('menu-action', 'next-pane') },
+        { label: 'Previous Pane', accelerator: `${mod}+[`, click: () => mainWindow?.webContents.send('menu-action', 'prev-pane') },
+        { type: 'separator' },
+        { label: 'Zoom In', accelerator: `${mod}+=`, click: () => mainWindow?.webContents.send('menu-action', 'zoom-in') },
+        { label: 'Zoom Out', accelerator: `${mod}+-`, click: () => mainWindow?.webContents.send('menu-action', 'zoom-out') },
+        { label: 'Reset Zoom', accelerator: `${mod}+0`, click: () => mainWindow?.webContents.send('menu-action', 'zoom-reset') },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'toggleDevTools' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// Lifecycle
 app.whenReady().then(() => {
   createWindow();
-  setupPtyHandlers(mainWindow);
+  buildMenu();
   startSocketServer();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
@@ -192,120 +215,10 @@ app.on('window-all-closed', () => {
     socketServer.close();
     try {
       const infoPath = path.join(os.tmpdir(), 'cmux-socket-path');
-      const socketPath = fs.readFileSync(infoPath, 'utf8');
-      fs.unlinkSync(socketPath);
+      const sp = fs.readFileSync(infoPath, 'utf8');
+      fs.unlinkSync(sp);
       fs.unlinkSync(infoPath);
     } catch {}
   }
   app.quit();
-});
-
-// Build application menu
-function buildMenu() {
-  const template = [
-    {
-      label: 'cmux',
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        {
-          label: 'Settings',
-          accelerator: 'CommandOrControl+,',
-          click: () => mainWindow?.webContents.send('open-settings'),
-        },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'New Workspace',
-          accelerator: store.get('shortcuts.newWorkspace'),
-          click: () => mainWindow?.webContents.send('new-workspace'),
-        },
-        {
-          label: 'New Window',
-          accelerator: store.get('shortcuts.newWindow'),
-          click: () => createWindow(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Split Right',
-          accelerator: store.get('shortcuts.splitRight'),
-          click: () => mainWindow?.webContents.send('split-right'),
-        },
-        {
-          label: 'Split Down',
-          accelerator: store.get('shortcuts.splitDown'),
-          click: () => mainWindow?.webContents.send('split-down'),
-        },
-        { type: 'separator' },
-        {
-          label: 'Close Workspace',
-          accelerator: store.get('shortcuts.closeWorkspace'),
-          click: () => mainWindow?.webContents.send('close-workspace'),
-        },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-        { type: 'separator' },
-        {
-          label: 'Find',
-          accelerator: store.get('shortcuts.find'),
-          click: () => mainWindow?.webContents.send('toggle-find'),
-        },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        {
-          label: 'Toggle Sidebar',
-          accelerator: store.get('shortcuts.toggleSidebar'),
-          click: () => mainWindow?.webContents.send('toggle-sidebar'),
-        },
-        {
-          label: 'Notifications',
-          accelerator: store.get('shortcuts.showNotifications'),
-          click: () => mainWindow?.webContents.send('show-notifications'),
-        },
-        { type: 'separator' },
-        {
-          label: 'Next Workspace',
-          accelerator: store.get('shortcuts.nextWorkspace'),
-          click: () => mainWindow?.webContents.send('next-workspace'),
-        },
-        {
-          label: 'Previous Workspace',
-          accelerator: store.get('shortcuts.prevWorkspace'),
-          click: () => mainWindow?.webContents.send('prev-workspace'),
-        },
-        { type: 'separator' },
-        { role: 'toggleDevTools' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-app.whenReady().then(buildMenu);
-
-// Theme handling
-ipcMain.handle('get-theme', () => {
-  const pref = store.get('theme');
-  if (pref === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
-  return pref;
-});
-
-nativeTheme.on('updated', () => {
-  mainWindow?.webContents.send('theme-changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
 });
