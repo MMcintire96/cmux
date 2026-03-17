@@ -1,0 +1,47 @@
+{
+  "name": "cmux",
+  "version": "1.0.0",
+  "description": "A terminal multiplexer with vertical tabs and notifications for AI coding agents",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:linux": "electron-builder --linux",
+    "build:deb": "electron-builder --linux deb",
+    "build:appimage": "electron-builder --linux AppImage"
+  },
+  "build": {
+    "appId": "com.cmux.terminal",
+    "productName": "cmux",
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "TerminalEmulator",
+      "icon": "assets/icon.png"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ]
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-unicode11": "^0.8.0",
+    "@xterm/addon-clipboard": "^0.1.0",
+    "electron-store": "^8.2.0",
+    "node-pty": "^1.0.0",
+    "split.js": "^1.6.5"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "bin": {
+    "cmux": "src/cli.js"
+  },
+  "license": "AGPL-3.0-or-later"
+}

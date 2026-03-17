@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:;">
+  <title>cmux</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <style>
+    /* Ensure xterm container fills its parent */
+    .xterm { height: 100%; }
+  </style>
+</head>
+<body>
+  <!-- Custom titlebar -->
+  <div id="titlebar">
+    <div id="titlebar-drag"></div>
+    <div id="titlebar-controls">
+      <button id="btn-minimize" class="titlebar-btn" title="Minimize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="2" rx="1" fill="currentColor"/></svg>
+      </button>
+      <button id="btn-maximize" class="titlebar-btn" title="Maximize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+      </button>
+      <button id="btn-close" class="titlebar-btn btn-close" title="Close">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="app">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <span class="sidebar-title">Workspaces</span>
+        <button id="btn-new-workspace" class="sidebar-btn" title="New Workspace (Ctrl+T)">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="workspace-list"></div>
+      <div id="sidebar-footer">
+        <button id="btn-notifications" class="sidebar-footer-btn" title="Notifications">
+          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 1.5a4.5 4.5 0 00-4.5 4.5v3l-1 2h11l-1-2V6A4.5 4.5 0 008 1.5zM6.5 12a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="notification-badge" class="hidden">0</span>
+        </button>
+        <button id="btn-settings" class="sidebar-footer-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Resize handle -->
+    <div id="sidebar-resize"></div>
+
+    <!-- Main content area -->
+    <div id="main-content">
+      <!-- Find bar (hidden by default) -->
+      <div id="find-bar" class="hidden">
+        <input type="text" id="find-input" placeholder="Find..." spellcheck="false">
+        <span id="find-count"></span>
+        <button id="find-prev" class="find-btn" title="Previous">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8l4-4 4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="find-next" class="find-btn" title="Next">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="find-close" class="find-btn" title="Close">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <!-- Terminal panes container -->
+      <div id="pane-container"></div>
+    </div>
+
+    <!-- Notifications panel (hidden by default) -->
+    <div id="notifications-panel" class="hidden">
+      <div id="notifications-header">
+        <span>Notifications</span>
+        <button id="btn-close-notifications" class="sidebar-btn">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="notifications-list"></div>
+    </div>
+
+    <!-- Settings panel (hidden by default) -->
+    <div id="settings-panel" class="hidden">
+      <div id="settings-header">
+        <span>Settings</span>
+        <button id="btn-close-settings" class="sidebar-btn">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="settings-content"></div>
+    </div>
+  </div>
+
+  <script src="components/workspace-manager.js"></script>
+  <script src="components/pane-manager.js"></script>
+  <script src="components/notification-manager.js"></script>
+  <script src="components/sidebar.js"></script>
+  <script src="components/settings.js"></script>
+  <script src="components/find-bar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
